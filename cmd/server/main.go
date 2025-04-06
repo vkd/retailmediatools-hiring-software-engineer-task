@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"sweng-task/internal/config"
 	"sweng-task/internal/handler"
+	"sweng-task/internal/model"
 	"sweng-task/internal/service"
 
 	"github.com/gofiber/fiber/v2"
@@ -18,6 +21,10 @@ import (
 )
 
 func main() {
+	// Graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// Initialize logger
 	logger, err := zap.NewProduction()
 	if err != nil {
@@ -41,7 +48,24 @@ func main() {
 
 	// Initialize services
 	lineItemService := service.NewLineItemService(log)
-	// Note: AdService implementation is left for the candidate
+	adService := service.NewAdService(lineItemService, log)
+	trackingEventsBuffer := 1000 // TODO: configurable from an ENV variable
+
+	// TODO: implement tracking events storage
+	discardTrackingEventsStorage := service.TrackingEventsStorageFunc(func(_ context.Context, _ []model.TrackingEvent) error { return nil })
+	trackingEventsWriteTimeout := 10 * time.Second // TODO: configurable from ENV
+	trackingService := service.NewTrackingService(trackingEventsBuffer, discardTrackingEventsStorage, trackingEventsWriteTimeout, log)
+	go func() {
+		// TODO: configurable from ENV
+		chunkSize := 100
+		flushEvery := 3 * time.Second
+		err := trackingService.TrackingEventsWorker(ctx, chunkSize, flushEvery)
+		if err != nil {
+			log.Errorf("Tracking events worker stopped with an error: %v", err)
+
+			stop() // we gracefully stop the service in case if worker is stopped
+		}
+	}()
 
 	// Setup Fiber app
 	app := fiber.New(fiber.Config{
@@ -68,10 +92,12 @@ func main() {
 	api.Get("/lineitems/:id", lineItemHandler.GetByID)
 
 	// Ad endpoints - TO BE IMPLEMENTED BY CANDIDATE
-	// api.Get("/ads", adHandler.GetWinningAds)
+	adHandler := handler.NewAdHandler(adService, log)
+	api.Get("/ads", adHandler.GetWinningAds)
 
 	// Tracking endpoint - TO BE IMPLEMENTED BY CANDIDATE
-	// api.Post("/tracking", trackingHandler.TrackEvent)
+	trackingHandler := handler.NewTrackingHandler(trackingService, log)
+	api.Post("/tracking", trackingHandler.TrackEvent)
 
 	// Start server
 	go func() {
@@ -83,9 +109,7 @@ func main() {
 	}()
 
 	// Graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	<-quit
+	<-ctx.Done()
 	log.Info("Shutting down server...")
 
 	if err := app.Shutdown(); err != nil {

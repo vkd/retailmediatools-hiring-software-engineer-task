@@ -36,6 +36,17 @@ func (h *LineItemHandler) Create(c *fiber.Ctx) error {
 
 	// Note: Validation logic should be implemented by the candidate
 
+	// It is not clear what exactly should be validated.
+	// I can guess, but I personally would prefer to ask otherwise.
+
+	// There are some posts explaining why is better to do parsing instead of validation.
+	// In shorts, since variable of a particular type is created, it shouldn't be in inconsistant state. Otherwise it will lead into uncertaing behaviour or bugs in the future.
+	// Links:
+	// Parse, don’t validate
+	// https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/
+	// Go Parse, Don't Validate
+	// https://totallygamerjet.hashnode.dev/go-parse-dont-validate
+
 	lineItem, err := h.service.Create(input)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{

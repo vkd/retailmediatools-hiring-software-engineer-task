@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        _GOVERSION: 1.24.2
     container_name: ad-bidding-service
     ports:
       - "8080:8080"
